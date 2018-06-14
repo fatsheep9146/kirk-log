@@ -22,16 +22,11 @@ func LogConfigConvertFromSliceToMap(cfgs []api.LogConfig) map[string]api.LogConf
 	return cfgmap
 }
 
-func LogSourceKeyFunc(src *api.LogSource) string {
-	return fmt.Sprintf("%s_%s", src.Spec.PodName, src.Spec.VolumeMount)
-}
-
 func LogSourceConvertFromSliceToMap(srcs []api.LogSource) map[string]api.LogSource {
 	srcmap := make(map[string]api.LogSource)
 
 	for _, src := range srcs {
-		key := LogSourceKeyFunc(&src)
-		srcmap[key] = src
+		srcmap[src.Meta.Name] = src
 	}
 
 	return srcmap
