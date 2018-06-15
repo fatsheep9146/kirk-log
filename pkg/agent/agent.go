@@ -18,6 +18,9 @@ type AgentManagerConfig struct {
 	// The name of LogAgentManager, which is also used to create the log agent components.
 	Name string
 
+	// The namespace of LogAgentManager
+	Namespace string
+
 	// The logConfigs that the logManager needed to collect
 	LogConfigs []api.LogConfig
 
@@ -50,5 +53,5 @@ type Agent struct {
 	Name string `json:"name"`
 
 	// The config path for this agent to read log source config
-	Path string `json:"path"`
+	ConfPath string `json:"path"`
 }

@@ -80,6 +80,19 @@ func NewLogSource(pod *v1.Pod, config *LogConfig) *LogSource {
 			Namespace:   pod.ObjectMeta.Namespace,
 			PodName:     pod.ObjectMeta.Name,
 			VolumeMount: config.VolumeMount,
+			Config:      config.Config,
 		},
 	}
+}
+
+func (l *LogSource) GetLogDir() string {
+	return fmt.Sprintf("%s/%s_%s", l.getVolumeMountPath(), l.Spec.Namespace, l.Spec.PodName)
+}
+
+func (l *LogSource) GetLogMetaDir() string {
+	return fmt.Sprintf("%s/%s_%s/.meta", l.getVolumeMountPath(), l.Spec.Namespace, l.Spec.PodName)
+}
+
+func (l *LogSource) getVolumeMountPath() string {
+	return fmt.Sprintf("/%s", l.Spec.VolumeMount)
 }

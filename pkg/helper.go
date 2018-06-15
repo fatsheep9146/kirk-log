@@ -7,22 +7,22 @@ import (
 	"github.com/fatsheep9146/kirklog/pkg/api"
 )
 
-func LogConfigKeyFunc(cfg *api.LogConfig) string {
+func logConfigKeyFunc(cfg *api.LogConfig) string {
 	return fmt.Sprintf("%s_%s", cfg.Name, cfg.VolumeMount)
 }
 
-func LogConfigConvertFromSliceToMap(cfgs []api.LogConfig) map[string]api.LogConfig {
+func logConfigConvertFromSliceToMap(cfgs []api.LogConfig) map[string]api.LogConfig {
 	cfgmap := make(map[string]api.LogConfig)
 
 	for _, cfg := range cfgs {
-		key := LogConfigKeyFunc(&cfg)
+		key := logConfigKeyFunc(&cfg)
 		cfgmap[key] = cfg
 	}
 
 	return cfgmap
 }
 
-func LogSourceConvertFromSliceToMap(srcs []api.LogSource) map[string]api.LogSource {
+func logSourceConvertFromSliceToMap(srcs []api.LogSource) map[string]api.LogSource {
 	srcmap := make(map[string]api.LogSource)
 
 	for _, src := range srcs {
@@ -32,7 +32,7 @@ func LogSourceConvertFromSliceToMap(srcs []api.LogSource) map[string]api.LogSour
 	return srcmap
 }
 
-func LogAgentConvertFromSliceToMap(srcs []agent.Agent) map[string]agent.Agent {
+func logAgentConvertFromSliceToMap(srcs []agent.Agent) map[string]agent.Agent {
 	srcmap := make(map[string]agent.Agent)
 
 	for _, src := range srcs {

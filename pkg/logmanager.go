@@ -1,10 +1,10 @@
 package logmanager
 
 import (
+	"encoding/json"
 	"fmt"
+	"io/ioutil"
 	"strings"
-
-	"github.com/fatsheep9146/kirklog/pkg/logkit"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
@@ -12,11 +12,13 @@ import (
 
 	"github.com/fatsheep9146/kirklog/pkg/agent"
 	"github.com/fatsheep9146/kirklog/pkg/api"
+	"github.com/fatsheep9146/kirklog/pkg/logkit"
 )
 
 type LogManagerConfig struct {
 	LogConfigDir string `json:"log_config_dir"`
 	Name         string `json:"name"`
+	Namespace    string
 	AgentType    string `json:"agent_type"`
 	Cli          *kubernetes.Clientset
 }
@@ -61,15 +63,18 @@ func NewLogManager(cfg *LogManagerConfig) *LogManager {
 	if err != nil {
 		panic(err.Error())
 	}
-
 	cli, err := kubernetes.NewForConfig(config)
 	if err != nil {
 		panic(err.Error())
 	}
 
 	// Create logConfigs from files
-	logConfigs := loadLogConfig(cfg.LogConfigDir)
-	logConfigsMap := LogConfigConvertFromSliceToMap(logConfigs)
+	logConfigs, err := loadLogConfig(cfg.LogConfigDir)
+	if err != nil {
+		// error: load log config error
+		panic(err)
+	}
+	logConfigsMap := logConfigConvertFromSliceToMap(logConfigs)
 
 	// Create logsources spec map from logConfigs
 	listLogSourcesFunc := getListLogSourcesFunc(cli, logConfigsMap)
@@ -78,6 +83,7 @@ func NewLogManager(cfg *LogManagerConfig) *LogManager {
 	// Check and create LogAgentManager and the deployment of log collector if not exist
 	logAgentManager := newAgentManager(agent.AgentType(cfg.AgentType), &agent.AgentManagerConfig{
 		Name:       cfg.Name,
+		Namespace:  cfg.Namespace,
 		LogConfigs: logConfigs,
 		Cli:        cli,
 	})
@@ -91,8 +97,8 @@ func NewLogManager(cfg *LogManagerConfig) *LogManager {
 
 	return &LogManager{
 		LogConfigs:      logConfigsMap,
-		LogSources:      LogSourceConvertFromSliceToMap(logSources),
-		LogAgents:       LogAgentConvertFromSliceToMap(logAgents),
+		LogSources:      logSourceConvertFromSliceToMap(logSources),
+		LogAgents:       logAgentConvertFromSliceToMap(logAgents),
 		LogAgentManager: logAgentManager,
 		Queue:           "",
 		Cli:             cli,
@@ -109,7 +115,7 @@ func (lm *LogManager) Run() {
 
 }
 
-// Create an agentManager according to the type of agent.
+// Create an logAgentManager according to the type of agent.
 func newAgentManager(agentType agent.AgentType, cfg *agent.AgentManagerConfig) agent.AgentManager {
 	switch agentType {
 	case agent.Logkit:
@@ -184,12 +190,32 @@ func (lm *LogManager) removeLogSource(*api.LogSource) error {
 }
 
 // Create logconfig objects from the files under the path dir
-func loadLogConfig(path string) []api.LogConfig {
+func loadLogConfig(path string) ([]api.LogConfig, error) {
 	logConfigs := make([]api.LogConfig, 0)
 
-	fmt.Printf("Not Implemented yet")
+	files, err := ioutil.ReadDir(path)
+	if err != nil {
+		return logConfigs, err
+	}
 
-	return logConfigs
+	for _, file := range files {
+		raw, err := ioutil.ReadFile(fmt.Sprintf("%s/%s", path, file.Name()))
+		if err != nil {
+			// warning the file is not read successfully
+			continue
+		}
+		logConfig := &api.LogConfig{}
+		err = json.Unmarshal(raw, logConfig)
+		if err != nil {
+			// warning the file is not legal json
+			continue
+		}
+		logConfigs = append(logConfigs, *logConfig)
+	}
+
+	// debug: show all log config
+
+	return logConfigs, nil
 }
 
 // Update the map of logSources and match according the newest logsource list
@@ -221,7 +247,7 @@ func updateLogSources(logSourcesMap map[string]api.LogSource, logSources []api.L
 // Update the map of logAgents and match according the newest logsource list
 // If there is a deleted logAgent, then modify the match which has this logAgent, remove the AgentName
 func updateLogAgents(logAgentsMap map[string]agent.Agent, logAgents []agent.Agent, match map[string]*Match) {
-	logAgentsMap = LogAgentConvertFromSliceToMap(logAgents)
+	logAgentsMap = logAgentConvertFromSliceToMap(logAgents)
 
 	for k, m := range match {
 		// If the match's agent does not exist any longer, the remove it record in corresponding match
@@ -239,6 +265,7 @@ func schedule(logSourcesMap map[string]api.LogSource, logAgentsMap map[string]ag
 	return keys
 }
 
+// Return the function that can be used to return newest logSources info from existing logConfigs
 func getListLogSourcesFunc(cli *kubernetes.Clientset, logConfigs map[string]api.LogConfig) func() ([]api.LogSource, error) {
 
 	for _, logConfig := range logConfigs {

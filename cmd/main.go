@@ -4,8 +4,9 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/fatsheep9146/kirklog/cmd/app"
 	"github.com/spf13/pflag"
+
+	"github.com/fatsheep9146/kirklog/cmd/app"
 )
 
 func main() {
