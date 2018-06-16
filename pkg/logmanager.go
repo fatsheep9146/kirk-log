@@ -5,10 +5,13 @@ import (
 	"fmt"
 	"io/ioutil"
 	"strings"
+	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
+	"k8s.io/client-go/util/workqueue"
 
 	"github.com/fatsheep9146/kirklog/pkg/agent"
 	"github.com/fatsheep9146/kirklog/pkg/api"
@@ -37,7 +40,7 @@ type LogManager struct {
 	Match map[string]*Match
 
 	// the working queue to store the logSource wait to be processed
-	Queue string
+	Queue workqueue.RateLimitingInterface
 
 	// the Agent used to manage the log agent components
 	LogAgentManager agent.AgentManager
@@ -100,19 +103,21 @@ func NewLogManager(cfg *LogManagerConfig) *LogManager {
 		LogSources:      logSourceConvertFromSliceToMap(logSources),
 		LogAgents:       logAgentConvertFromSliceToMap(logAgents),
 		LogAgentManager: logAgentManager,
-		Queue:           "",
+		Queue:           workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "logsource"),
 		Cli:             cli,
 	}
 }
 
 func (lm *LogManager) Run() {
+	stop := make(chan struct{})
 	// This function choose whether to rearrange the match relations between logSource and logAgent
-	lm.syncInfo()
+	go lm.syncInfo()
 
-	// Start worker to handle the message in queue
-
+	// Info: Start worker to handle the message in queuexx
+	go wait.Until(lm.worker, time.Second, stop)
 	// Start the goroutine to check the lag of each logSource
 
+	<-stop
 }
 
 // Create an logAgentManager according to the type of agent.
@@ -143,21 +148,45 @@ func (lm *LogManager) syncInfo() {
 		updateLogAgents(lm.LogAgents, logAgents, lm.Match)
 
 		// Update the match relation between logSource and logAgent
-		_ = schedule(lm.LogSources, lm.LogAgents, lm.Match)
+		logsources := updateMatch(lm.LogSources, lm.LogAgents, lm.Match)
 
 		// Enqueue the LogSources that are needed to be synced
+		for _, logsource := range logsources {
+			lm.Queue.Add(logsource.Meta.Name)
+		}
 	}
 }
 
-func (lm *LogManager) sync() error {
-	// Do different works according to different sitiations
-	// Get key from queue
-	key := ""
-	var flag bool
-	var err error
-	// Get logSource entry of this key from map
+func (lm *LogManager) worker() {
+	for lm.processNextWorkItem() {
+	}
+}
 
+func (lm *LogManager) processNextWorkItem() bool {
+	key, quit := lm.Queue.Get()
+	if quit {
+		return false
+	}
+	defer lm.Queue.Done(key)
+	if flag, err := lm.sync(key.(string)); err != nil {
+		// utilruntime.HandleError(fmt.Errorf("Error syncing StatefulSet %v, requeuing: %v", key.(string), err))
+		lm.Queue.AddRateLimited(key)
+	} else {
+		if flag {
+			lm.Queue.Forget(key)
+		} else {
+			lm.Queue.AddRateLimited(key)
+		}
+	}
+	return true
+}
+
+// flag indicates wheter the logsource is done processing.
+func (lm *LogManager) sync(key string) (flag bool, err error) {
+
+	// Get logSource entry of this key from map
 	action := judgeAction(lm.Match[key])
+	// Info: Handle the logSource action
 	switch action {
 	case LogSourceAdd:
 		flag, err = lm.logSourceAddFunc(key)
@@ -167,18 +196,7 @@ func (lm *LogManager) sync() error {
 		flag, err = lm.logSourceMovFunc(key)
 	}
 
-	if flag {
-		// key done handling, forget the key
-		return nil
-	} else {
-		if err != nil {
-			return err
-		} else {
-			// key undone reenqueue
-			return nil
-		}
-	}
-	return nil
+	return flag, err
 }
 
 // Remove the logSource from logSourcesMap and logSource log dir and Match
@@ -259,10 +277,38 @@ func updateLogAgents(logAgentsMap map[string]agent.Agent, logAgents []agent.Agen
 
 // Schedule Algorithm which is used to schedule the match relation between logSources and logAgents
 // Return the key of LogSource whose match relation is changed
-func schedule(logSourcesMap map[string]api.LogSource, logAgentsMap map[string]agent.Agent, match map[string]*Match) []string {
-	keys := make([]string, 0)
+func updateMatch(logSourcesMap map[string]api.LogSource, logAgentsMap map[string]agent.Agent, match map[string]*Match) []api.LogSource {
+	logsources := make([]api.LogSource, 0)
 
-	return keys
+	// First visit all match found all match need to be added into the queue
+	for k, m := range match {
+		needAdded := false
+		needSchedule := false
+		if m.PodName != "" && m.AgentName == "" && m.ConfPath == "" {
+			// This is a new added logSource
+			// Info: A added logSource
+			needAdded = true
+			needSchedule = true
+		} else if m.PodName == "" && m.AgentName != "" && m.ConfPath != "" {
+			// This is a deleted logSource
+			// Info
+			needAdded = true
+		} else if m.PodName != "" && m.AgentName == "" && m.ConfPath != "" {
+			// This is an agent changed logSource
+			needAdded = true
+			needSchedule = true
+		}
+
+		if needSchedule {
+			schedule(logSourcesMap[k], logAgentsMap, match)
+			// Info: xxx need schedule, and schedule to agent
+		}
+		if needAdded {
+			logsources = append(logsources, logSourcesMap[k])
+		}
+	}
+
+	return logsources
 }
 
 // Return the function that can be used to return newest logSources info from existing logConfigs

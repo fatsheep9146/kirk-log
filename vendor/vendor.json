@@ -569,8 +569,8 @@
 		{
 			"checksumSHA1": "WVUAXkkBeN3m2LenBRySrdk97PE=",
 			"path": "k8s.io/apimachinery/pkg/util/wait",
-			"revision": "521145febf93d5639dce48a49ee8dc080863b034",
-			"revisionTime": "2018-06-05T18:35:17Z"
+			"revision": "5a8013207d0d28c7fe98193e5b6cdbf92e98a000",
+			"revisionTime": "2018-06-14T22:41:26Z"
 		},
 		{
 			"checksumSHA1": "1bUNGHe9gSNhcdE2EKl+h+VPuDY=",
@@ -877,6 +877,12 @@
 			"path": "k8s.io/client-go/util/integer",
 			"revision": "2f61378d319a68876788e27e34bde0d95cb7a1c5",
 			"revisionTime": "2018-06-07T23:50:14Z"
+		},
+		{
+			"checksumSHA1": "wgrkDRwF0RXxN7Z9YMDRVV+KeUU=",
+			"path": "k8s.io/client-go/util/workqueue",
+			"revision": "8d6e3480fc03b7337a24f349d35733190655e2ad",
+			"revisionTime": "2018-06-14T22:41:26Z"
 		}
 	],
 	"rootPath": "github.com/fatsheep9146/kirklog"
