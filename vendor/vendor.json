@@ -123,6 +123,12 @@
 			"revisionTime": "2018-03-12T05:41:25Z"
 		},
 		{
+			"checksumSHA1": "5fRTP+zI9WQqNzyHbi2qarMGauQ=",
+			"path": "github.com/sirupsen/logrus",
+			"revision": "ea8897e79973357ba785ac2533559a6297e83c44",
+			"revisionTime": "2018-05-23T07:42:43Z"
+		},
+		{
 			"checksumSHA1": "BGm8lKZmvJbf/YOJLeL1rw2WVjA=",
 			"path": "golang.org/x/crypto/ssh/terminal",
 			"revision": "8ac0e0d97ce45cd83d1d7243c060cb8461dda5e9",

@@ -4,9 +4,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
+	"os"
 	"strings"
 	"time"
 
+	log "github.com/sirupsen/logrus"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/kubernetes"
@@ -61,6 +63,9 @@ func NewLogManagerConfig() *LogManagerConfig {
 }
 
 func NewLogManager(cfg *LogManagerConfig) *LogManager {
+	logger := log.WithFields(log.Fields{
+		"func": "NewLogManager",
+	})
 
 	config, err := rest.InClusterConfig()
 	if err != nil {
@@ -74,14 +79,18 @@ func NewLogManager(cfg *LogManagerConfig) *LogManager {
 	// Create logConfigs from files
 	logConfigs, err := loadLogConfig(cfg.LogConfigDir)
 	if err != nil {
-		// error: load log config error
-		panic(err)
+		logger.Fatalf("Load config file from dir %s failed, err: %v", cfg.LogConfigDir, err)
 	}
 	logConfigsMap := logConfigConvertFromSliceToMap(logConfigs)
+	logger.Info("Successfully load log configs")
 
 	// Create logsources spec map from logConfigs
 	listLogSourcesFunc := getListLogSourcesFunc(cli, logConfigsMap)
-	logSources, _ := listLogSourcesFunc()
+	logSources, err := listLogSourcesFunc()
+	if err != nil {
+		logger.Fatalf("List log sources from the config of log failed, err:%+v", err)
+	}
+	logger.Info("Successfully get current log sources")
 
 	// Check and create LogAgentManager and the deployment of log collector if not exist
 	logAgentManager := newAgentManager(agent.AgentType(cfg.AgentType), &agent.AgentManagerConfig{
@@ -90,13 +99,26 @@ func NewLogManager(cfg *LogManagerConfig) *LogManager {
 		LogConfigs: logConfigs,
 		Cli:        cli,
 	})
-	logAgents, _ := logAgentManager.List()
-	if len(logAgents) == 0 {
-		logAgentManager.Deploy()
-		logAgents, _ = logAgentManager.List()
-	}
+	logger.Info("Successfully create AgentManager of type %s", cfg.AgentType)
 
-	// Restore the logsources map status from current situations in case this is a restart
+	logAgents, err := logAgentManager.List()
+	if err != nil {
+		logger.Fatal("List agent pods failed, err: %+v", err)
+	}
+	if len(logAgents) == 0 {
+		logger.Info("List no active log agent pods, then we should deploy a new log agent service")
+		err = logAgentManager.Deploy()
+		if err != nil {
+			logger.Fatal("Deploy new log agent service failed, err: %v", err)
+		}
+		logAgents, err = logAgentManager.List()
+		if err != nil {
+			logger.Fatal("List agent pods failed, err: %+v", err)
+		}
+	}
+	logger.Info("Successfully list the log agents instance")
+
+	// ToDo: Restore the logsources map status from current situations in case this is a restart
 
 	return &LogManager{
 		LogConfigs:      logConfigsMap,
@@ -110,6 +132,11 @@ func NewLogManager(cfg *LogManagerConfig) *LogManager {
 
 func (lm *LogManager) Run() {
 	stop := make(chan struct{})
+	logger := log.WithFields(log.Fields{
+		"func": "Run",
+	})
+	logger.Info("Start the LogManager main loop")
+
 	// This function choose whether to rearrange the match relations between logSource and logAgent
 	go lm.syncInfo()
 
@@ -122,6 +149,7 @@ func (lm *LogManager) Run() {
 
 // Create an logAgentManager according to the type of agent.
 func newAgentManager(agentType agent.AgentType, cfg *agent.AgentManagerConfig) agent.AgentManager {
+
 	switch agentType {
 	case agent.Logkit:
 		return logkit.NewLogkitAgentManager(cfg)
@@ -132,6 +160,11 @@ func newAgentManager(agentType agent.AgentType, cfg *agent.AgentManagerConfig) a
 // Loop function to sync the info about logSource and logAgent
 // If logSource or logAgent changes, use scheduling algorithm to
 func (lm *LogManager) syncInfo() {
+	logger := log.WithFields(log.Fields{
+		"func": "syncInfo",
+	})
+
+	logger.Info("Start the main loop of sync info of logSources and logAgents")
 	// Get current logSources
 	listLogSourcesFunc := getListLogSourcesFunc(lm.Cli, lm.LogConfigs)
 	// Get current logAgents
@@ -139,21 +172,41 @@ func (lm *LogManager) syncInfo() {
 
 	for {
 		// Get current logSources
-		logSources, _ := listLogSourcesFunc()
+		logSources, err := listLogSourcesFunc()
+		if err != nil {
+			logger.Errorf("List newest log sources failed, err: %v", err)
+			continue
+		}
+		logger.Infof("List newest log sources succeeded, list %d logSources", len(logSources))
+		for i, logSource := range logSources {
+			logger.Debugf("LogSource %d: %s, detail: %v", i, logSource.Meta.Name, logSource)
+		}
+
 		// Get current logAgents
-		logAgents, _ := listLogAgentsFunc()
+		logAgents, err := listLogAgentsFunc()
+		if err != nil {
+			logger.Errorf("List newest log agents failed, err: %v", err)
+			continue
+		}
+		logger.Infof("List newest log agents succeeded, list %d agents", len(logAgents))
+		for i, logAgent := range logAgents {
+			logger.Debugf("LogAgent %d: %s, detail: %v", i, logAgent.Name, logAgent)
+		}
 
 		// Update the logSources and logAgents map
 		updateLogSources(lm.LogSources, logSources, lm.Match)
 		updateLogAgents(lm.LogAgents, logAgents, lm.Match)
+		logger.Info("Update logSources and logAgents succeeded")
 
 		// Update the match relation between logSource and logAgent
 		logsources := updateMatch(lm.LogSources, lm.LogAgents, lm.Match)
-
+		logger.Info("Update match succeeded")
 		// Enqueue the LogSources that are needed to be synced
 		for _, logsource := range logsources {
 			lm.Queue.Add(logsource.Meta.Name)
 		}
+
+		time.Sleep(3 * time.Second)
 	}
 }
 
@@ -183,9 +236,14 @@ func (lm *LogManager) processNextWorkItem() bool {
 
 // flag indicates wheter the logsource is done processing.
 func (lm *LogManager) sync(key string) (flag bool, err error) {
+	logger := log.WithFields(log.Fields{
+		"func": "sync",
+		"key":  key,
+	})
 
 	// Get logSource entry of this key from map
 	action := judgeAction(lm.Match[key])
+	logger.Infof("Start handle with the logSource %s, action is %v", key, action)
 	// Info: Handle the logSource action
 	switch action {
 	case LogSourceAdd:
@@ -195,43 +253,66 @@ func (lm *LogManager) sync(key string) (flag bool, err error) {
 	case LogSourceMov:
 		flag, err = lm.logSourceMovFunc(key)
 	}
+	logger.Infof("Handle logSource %s done", key)
 
 	return flag, err
 }
 
 // Remove the logSource from logSourcesMap and logSource log dir and Match
-func (lm *LogManager) removeLogSource(*api.LogSource) error {
+func (lm *LogManager) removeLogSource(logSource *api.LogSource) error {
+	logger := log.WithFields(log.Fields{
+		"func": "removeLogSource",
+		"key":  logSource.Meta.Name,
+	})
+	// Remove log dir
+	err := os.Remove(logSource.GetLogDir())
+	if err != nil {
+		logger.Errorf("Remove log dir failed, err: %v", err)
+		return err
+	}
+	logger.Info("Remove log dir succeeded")
 
-	fmt.Printf("Not Implemented yet")
+	key := logSource.Meta.Name
+	delete(lm.LogSources, key)
+	delete(lm.Match, key)
+	logger.Info("Remove logSource meta data from logSources map and match")
 
 	return nil
 }
 
 // Create logconfig objects from the files under the path dir
 func loadLogConfig(path string) ([]api.LogConfig, error) {
+	logger := log.WithFields(log.Fields{
+		"func": "loadLogConfig",
+	})
+
 	logConfigs := make([]api.LogConfig, 0)
 
 	files, err := ioutil.ReadDir(path)
 	if err != nil {
+		logger.Errorf("Read dir failed %s, err: %v", path, err)
 		return logConfigs, err
 	}
 
 	for _, file := range files {
 		raw, err := ioutil.ReadFile(fmt.Sprintf("%s/%s", path, file.Name()))
 		if err != nil {
-			// warning the file is not read successfully
+			logger.Errorf("Read file %s failed, err: %v", fmt.Sprintf("%s/%s", path, file.Name()), err)
 			continue
 		}
 		logConfig := &api.LogConfig{}
 		err = json.Unmarshal(raw, logConfig)
 		if err != nil {
-			// warning the file is not legal json
+			logger.Errorf("Unmarshal file %s failed, err: %v", fmt.Sprintf("%s/%s", path, file.Name()), err)
 			continue
 		}
 		logConfigs = append(logConfigs, *logConfig)
 	}
 
-	// debug: show all log config
+	logger.Info("Load all log configs")
+	for _, logConfig := range logConfigs {
+		logger.Debugf("Successfully load log config %+v", logConfig)
+	}
 
 	return logConfigs, nil
 }
@@ -240,11 +321,15 @@ func loadLogConfig(path string) ([]api.LogConfig, error) {
 // If there is a new logSource, then add it to logSourcesMap, and create a new match with podname, no conf, no agentname
 // If there is a deleted logSource, then modify the match of this logSource, remove the PodName
 func updateLogSources(logSourcesMap map[string]api.LogSource, logSources []api.LogSource, match map[string]*Match) {
+	logger := log.WithFields(log.Fields{
+		"func": "updateLogSources",
+	})
+
 	visited := make(map[string]bool)
 
 	for _, logSource := range logSources {
 		if _, exist := logSourcesMap[logSource.Meta.Name]; !exist {
-			// If this is a new added logSource
+			logger.Info("Found a new logSource %s, add it to logSources map", logSource.Meta.Name)
 			logSourcesMap[logSource.Meta.Name] = logSource
 			match[logSource.Meta.Name] = &Match{
 				PodName: logSource.Spec.PodName,
@@ -255,8 +340,8 @@ func updateLogSources(logSourcesMap map[string]api.LogSource, logSources []api.L
 	}
 
 	for logSourceName, _ := range logSourcesMap {
-		// If there is a deleted logSource, the modify the match of this logSource, remove the PodName
 		if _, exist := visited[logSourceName]; !exist {
+			logger.Info("Found a deleted logSource %s, delete it from logSources map", logSourceName)
 			match[logSourceName].PodName = ""
 		}
 	}
@@ -265,11 +350,14 @@ func updateLogSources(logSourcesMap map[string]api.LogSource, logSources []api.L
 // Update the map of logAgents and match according the newest logsource list
 // If there is a deleted logAgent, then modify the match which has this logAgent, remove the AgentName
 func updateLogAgents(logAgentsMap map[string]agent.Agent, logAgents []agent.Agent, match map[string]*Match) {
+	logger := log.WithFields(log.Fields{
+		"func": "updateLogAgents",
+	})
 	logAgentsMap = logAgentConvertFromSliceToMap(logAgents)
 
 	for k, m := range match {
-		// If the match's agent does not exist any longer, the remove it record in corresponding match
 		if _, exist := logAgentsMap[m.AgentName]; !exist {
+			logger.Infof("Found a logSource %s with no-more-existed agent %s, delete its info", k, match[k].AgentName)
 			match[k].AgentName = ""
 		}
 	}
@@ -278,6 +366,9 @@ func updateLogAgents(logAgentsMap map[string]agent.Agent, logAgents []agent.Agen
 // Schedule Algorithm which is used to schedule the match relation between logSources and logAgents
 // Return the key of LogSource whose match relation is changed
 func updateMatch(logSourcesMap map[string]api.LogSource, logAgentsMap map[string]agent.Agent, match map[string]*Match) []api.LogSource {
+	logger := log.WithFields(log.Fields{
+		"func": "updateMatch",
+	})
 	logsources := make([]api.LogSource, 0)
 
 	// First visit all match found all match need to be added into the queue
@@ -285,25 +376,27 @@ func updateMatch(logSourcesMap map[string]api.LogSource, logAgentsMap map[string
 		needAdded := false
 		needSchedule := false
 		if m.PodName != "" && m.AgentName == "" && m.ConfPath == "" {
-			// This is a new added logSource
+			logger.Infof("LogSource %s is a new added logSource", k)
 			// Info: A added logSource
 			needAdded = true
 			needSchedule = true
 		} else if m.PodName == "" && m.AgentName != "" && m.ConfPath != "" {
-			// This is a deleted logSource
+			logger.Infof("LogSource %s is a deleted logSource", k)
 			// Info
 			needAdded = true
 		} else if m.PodName != "" && m.AgentName == "" && m.ConfPath != "" {
-			// This is an agent changed logSource
+			logger.Infof("LogSource %s is a agent-changed logSource", k)
 			needAdded = true
 			needSchedule = true
 		}
 
 		if needSchedule {
+			logger.Info("LogSource %s needs to be scheduled or re-scheduled")
 			schedule(logSourcesMap[k], logAgentsMap, match)
-			// Info: xxx need schedule, and schedule to agent
+			logger.Info("LogSource %s is scheduled or re-scheduled to agent %s", match[k].AgentName)
 		}
 		if needAdded {
+			logger.Info("LogSource %s is needs to be enqueued")
 			logsources = append(logsources, logSourcesMap[k])
 		}
 	}
@@ -313,12 +406,18 @@ func updateMatch(logSourcesMap map[string]api.LogSource, logAgentsMap map[string
 
 // Return the function that can be used to return newest logSources info from existing logConfigs
 func getListLogSourcesFunc(cli *kubernetes.Clientset, logConfigs map[string]api.LogConfig) func() ([]api.LogSource, error) {
+	logger := log.WithFields(log.Fields{
+		"func": "getListLogSourcesFunc",
+	})
 
 	for _, logConfig := range logConfigs {
 		name := logConfig.Name
 		kind := logConfig.Kind
 		namespace := logConfig.Namespace
-		labelSelector, _ := getLabelSelector(cli, name, namespace, kind)
+		labelSelector, err := getLabelSelector(cli, name, namespace, kind)
+		if err != nil {
+			logger.Errorf("getLabelSelector for logConfig %s failed, err: %v", logConfig.Name, err)
+		}
 		logConfig.LabelSelector = labelSelector
 	}
 
