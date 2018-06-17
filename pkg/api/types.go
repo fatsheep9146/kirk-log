@@ -43,6 +43,10 @@ type LogSourceSpec struct {
 	// The name of pod, who generates the log
 	PodName string `json:"pod_name"`
 
+	// The controller object that the pod belongs to
+	// For example if the pod belongs to a deployment whose name is boots-gate, then ControllerName is "deployment_boots-gate"
+	ControllerName string `json:"controller_name"`
+
 	// The namespace of this pod
 	Namespace string `json:"namespace"`
 
@@ -77,10 +81,11 @@ func NewLogSource(pod *v1.Pod, config *LogConfig) *LogSource {
 			Name: fmt.Sprintf("%s_%s_%s", config.Name, config.VolumeMount, pod.Name),
 		},
 		Spec: LogSourceSpec{
-			Namespace:   pod.ObjectMeta.Namespace,
-			PodName:     pod.ObjectMeta.Name,
-			VolumeMount: config.VolumeMount,
-			Config:      config.Config,
+			Namespace:      pod.ObjectMeta.Namespace,
+			PodName:        pod.ObjectMeta.Name,
+			VolumeMount:    config.VolumeMount,
+			Config:         config.Config,
+			ControllerName: fmt.Sprintf("%s_%s", config.Kind, config.Name),
 		},
 	}
 }
@@ -93,6 +98,9 @@ func (l *LogSource) GetLogMetaDir() string {
 	return fmt.Sprintf("%s/%s_%s/.meta", l.getVolumeMountPath(), l.Spec.Namespace, l.Spec.PodName)
 }
 
+// The mountPath of the log source into logmanager
+// For example if we want logmanager to collect the file log of deployment whose name is "boots-gate", the file log of boots-gate is its volumeMounts "applog" which is backed by a pvc name boots-gate-applog
+// Then this pvc should also be mounted to logmanager, and mountPath should be "/deployment_boots-gate_applog"
 func (l *LogSource) getVolumeMountPath() string {
-	return fmt.Sprintf("/%s", l.Spec.VolumeMount)
+	return fmt.Sprintf("/%s_%s", l.Spec.ControllerName, l.Spec.VolumeMount)
 }
