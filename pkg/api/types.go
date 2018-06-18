@@ -78,7 +78,7 @@ type LogStatus struct {
 func NewLogSource(pod *v1.Pod, config *LogConfig) *LogSource {
 	return &LogSource{
 		Meta: Meta{
-			Name: fmt.Sprintf("%s_%s_%s", config.Name, config.VolumeMount, pod.Name),
+			Name: fmt.Sprintf("%s_%s_%s_%s", config.Kind, config.Name, config.VolumeMount, pod.Name),
 		},
 		Spec: LogSourceSpec{
 			Namespace:      pod.ObjectMeta.Namespace,
