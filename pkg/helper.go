@@ -25,8 +25,8 @@ func logConfigConvertFromSliceToMap(cfgs []api.LogConfig) map[string]*api.LogCon
 func logSourceConvertFromSliceToMap(srcs []api.LogSource) map[string]*api.LogSource {
 	srcmap := make(map[string]*api.LogSource)
 
-	for _, src := range srcs {
-		srcmap[src.Meta.Name] = &src
+	for i, src := range srcs {
+		srcmap[src.Meta.Name] = &srcs[i]
 	}
 
 	return srcmap
@@ -35,9 +35,9 @@ func logSourceConvertFromSliceToMap(srcs []api.LogSource) map[string]*api.LogSou
 func logAgentConvertFromSliceToMap(srcs []agent.Agent) map[string]*agent.Agent {
 	srcmap := make(map[string]*agent.Agent)
 
-	for _, src := range srcs {
+	for i, src := range srcs {
 		key := src.Name
-		srcmap[key] = &src
+		srcmap[key] = &srcs[i]
 	}
 
 	return srcmap
