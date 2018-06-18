@@ -90,5 +90,5 @@ func getRunnerName(logSource *api.LogSource) string {
 }
 
 func getConfigFileName(logSource *api.LogSource) string {
-	return fmt.Sprintf("%s.json", getRunnerName(logSource))
+	return fmt.Sprintf("%s.conf", getRunnerName(logSource))
 }
