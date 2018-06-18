@@ -338,11 +338,11 @@ func updateLogSources(logSourcesMap map[string]*api.LogSource, logSources []api.
 
 	for _, logSource := range logSources {
 		if _, exist := logSourcesMap[logSource.Meta.Name]; !exist {
-			logger.Info("Found a new logSource %s, add it to logSources map", logSource.Meta.Name)
+			logger.Infof("Found a new logSource %s, add it to logSources map", logSource.Meta.Name)
 			logSourcesMap[logSource.Meta.Name] = &logSource
 		}
 		if _, exist := match[logSource.Meta.Name]; !exist {
-			logger.Info("Found a new not matched logSource %s, add it to match")
+			logger.Infof("Found a new not matched logSource %s, add it to match", logSource.Meta.Name)
 			match[logSource.Meta.Name] = &Match{
 				PodName: logSource.Spec.PodName,
 			}
@@ -352,7 +352,7 @@ func updateLogSources(logSourcesMap map[string]*api.LogSource, logSources []api.
 
 	for logSourceName, _ := range logSourcesMap {
 		if _, exist := visited[logSourceName]; !exist {
-			logger.Info("Found a deleted logSource %s, delete it from logSources map", logSourceName)
+			logger.Infof("Found a deleted logSource %s, delete it from logSources map", logSourceName)
 			match[logSourceName].PodName = ""
 		}
 	}
@@ -367,9 +367,11 @@ func updateLogAgents(logAgentsMap map[string]*agent.Agent, logAgents []agent.Age
 	logAgentsMap = logAgentConvertFromSliceToMap(logAgents)
 
 	for k, m := range match {
-		if _, exist := logAgentsMap[m.AgentName]; !exist {
-			logger.Infof("Found a logSource %s with no-more-existed agent %s, delete its info", k, match[k].AgentName)
-			match[k].AgentName = ""
+		if m.AgentName != "" {
+			if _, exist := logAgentsMap[m.AgentName]; !exist {
+				logger.Infof("Found a logSource %s with no-more-existed agent %s, delete its info", k, match[k].AgentName)
+				match[k].AgentName = ""
+			}
 		}
 	}
 }
@@ -402,12 +404,12 @@ func updateMatch(logSourcesMap map[string]*api.LogSource, logAgentsMap map[strin
 		}
 
 		if needSchedule {
-			logger.Info("LogSource %s needs to be scheduled or re-scheduled")
+			logger.Infof("LogSource %s needs to be scheduled or re-scheduled")
 			schedule(logSourcesMap[k], logAgentsMap, match)
-			logger.Info("LogSource %s is scheduled or re-scheduled to agent %s", match[k].AgentName)
+			logger.Infof("LogSource %s is scheduled or re-scheduled to agent %s", logSourcesMap[k].Meta.Name, match[k].AgentName)
 		}
 		if needAdded {
-			logger.Info("LogSource %s is needs to be enqueued")
+			logger.Infof("LogSource %s is needs to be enqueued")
 			logsources = append(logsources, *logSourcesMap[k])
 		}
 	}

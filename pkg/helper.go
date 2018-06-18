@@ -8,15 +8,15 @@ import (
 )
 
 func logConfigKeyFunc(cfg *api.LogConfig) string {
-	return fmt.Sprintf("%s_%s", cfg.Name, cfg.VolumeMount)
+	return fmt.Sprintf("%s_%s_%s", cfg.Kind, cfg.Name, cfg.VolumeMount)
 }
 
 func logConfigConvertFromSliceToMap(cfgs []api.LogConfig) map[string]*api.LogConfig {
 	cfgmap := make(map[string]*api.LogConfig)
 
-	for _, cfg := range cfgs {
+	for i, cfg := range cfgs {
 		key := logConfigKeyFunc(&cfg)
-		cfgmap[key] = &cfg
+		cfgmap[key] = &cfgs[i]
 	}
 
 	return cfgmap

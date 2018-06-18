@@ -16,7 +16,7 @@ const (
 )
 
 func judgeAction(m *Match) LogSourceAction {
-	if m.PodName != "" && m.AgentName == "" && m.ConfPath == "" {
+	if m.PodName != "" && m.AgentName != "" && m.ConfPath == "" {
 		return LogSourceAdd
 	} else if m.PodName == "" && m.AgentName != "" && m.ConfPath != "" {
 		return LogSourceDel
