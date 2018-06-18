@@ -38,7 +38,7 @@ func (lm *LogManager) logSourceAddFunc(key string) (bool, error) {
 	logSource := lm.LogSources[key]
 	logAgentName := lm.Match[key].AgentName
 
-	err := lm.LogAgentManager.AddConfig(&logSource, logAgentName)
+	err := lm.LogAgentManager.AddConfig(logSource, logAgentName)
 	if err != nil {
 		logger.Error("Add config failed, err: %v", err)
 		return false, err
@@ -59,12 +59,12 @@ func (lm *LogManager) logSourceDelFunc(key string) (bool, error) {
 
 	if logSource.Status.LogStatus.Done {
 		// If the log is done collecting, then delete this logSource and config
-		err := lm.LogAgentManager.DelConfig(&logSource, logAgentName)
+		err := lm.LogAgentManager.DelConfig(logSource, logAgentName)
 		if err != nil {
 			logger.Error("Add config failed, err: %v", err)
 			return false, err
 		}
-		err = lm.removeLogSource(&logSource)
+		err = lm.removeLogSource(logSource)
 		if err != nil {
 			logger.Error("Remove logSource failed, err: %v", err)
 			return false, err
@@ -91,14 +91,14 @@ func (lm *LogManager) logSourceMovFunc(key string) (bool, error) {
 	oldLogAgentName := lm.LogAgentManager.GetAgentNameFromConf(logConfPath)
 
 	// remove old agent config
-	err := lm.LogAgentManager.DelConfig(&logSource, oldLogAgentName)
+	err := lm.LogAgentManager.DelConfig(logSource, oldLogAgentName)
 	if err != nil {
 		logger.Error("Delete old config failed, err: %v", err)
 		return false, err
 	}
 
 	// add new agent conf
-	err = lm.LogAgentManager.AddConfig(&logSource, newLogAgentName)
+	err = lm.LogAgentManager.AddConfig(logSource, newLogAgentName)
 	if err != nil {
 		logger.Error("Add new config failed, err: %v", err)
 		return false, err

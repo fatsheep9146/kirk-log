@@ -6,7 +6,7 @@ import (
 )
 
 // Currently we schedule the logSource to the agent with the smallest count of logSources
-func schedule(logsource api.LogSource, logAgentsMap map[string]agent.Agent, match map[string]*Match) {
+func schedule(logsource *api.LogSource, logAgentsMap map[string]*agent.Agent, match map[string]*Match) {
 	counts := make(map[string]int)
 
 	for k, a := range logAgentsMap {

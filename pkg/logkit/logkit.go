@@ -46,7 +46,7 @@ func (l *LogkitAgentManagerImpl) List() ([]agent.Agent, error) {
 		return agents, err
 	}
 
-	labels := deploy.Spec.Template.Labels
+	labels := deploy.Spec.Selector.MatchLabels
 	labelSelectors := make([]string, 0)
 	for k, v := range labels {
 		labelSelectors = append(labelSelectors, fmt.Sprintf("%s=%s", k, v))

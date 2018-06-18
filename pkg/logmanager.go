@@ -30,13 +30,13 @@ type LogManagerConfig struct {
 
 type LogManager struct {
 	// map for all log config
-	LogConfigs map[string]api.LogConfig
+	LogConfigs map[string]*api.LogConfig
 
 	// map for all log entries
-	LogSources map[string]api.LogSource
+	LogSources map[string]*api.LogSource
 
 	// map for all log agent
-	LogAgents map[string]agent.Agent
+	LogAgents map[string]*agent.Agent
 
 	// map for the match relation between logSource and logAgent
 	Match map[string]*Match
@@ -99,7 +99,7 @@ func NewLogManager(cfg *LogManagerConfig) *LogManager {
 		LogConfigs: logConfigs,
 		Cli:        cli,
 	})
-	logger.Info("Successfully create AgentManager of type %s", cfg.AgentType)
+	logger.Infof("Successfully create AgentManager of type %s", cfg.AgentType)
 
 	logAgents, err := logAgentManager.List()
 	if err != nil {
@@ -141,6 +141,7 @@ func (lm *LogManager) Run() {
 	go lm.syncInfo()
 
 	// Info: Start worker to handle the message in queuexx
+	logger.Info("Start the worker function to deal with logSource")
 	go wait.Until(lm.worker, time.Second, stop)
 	// Start the goroutine to check the lag of each logSource
 
@@ -216,10 +217,16 @@ func (lm *LogManager) worker() {
 }
 
 func (lm *LogManager) processNextWorkItem() bool {
+	logger := log.WithFields(log.Fields{
+		"func": "processNextWorkItem",
+	})
 	key, quit := lm.Queue.Get()
 	if quit {
 		return false
 	}
+
+	logger.Infof("Ready to handle the item %s", key)
+
 	defer lm.Queue.Done(key)
 	if flag, err := lm.sync(key.(string)); err != nil {
 		// utilruntime.HandleError(fmt.Errorf("Error syncing StatefulSet %v, requeuing: %v", key.(string), err))
@@ -231,6 +238,7 @@ func (lm *LogManager) processNextWorkItem() bool {
 			lm.Queue.AddRateLimited(key)
 		}
 	}
+	logger.Infof("Finish handling the item %s", key)
 	return true
 }
 
@@ -320,7 +328,7 @@ func loadLogConfig(path string) ([]api.LogConfig, error) {
 // Update the map of logSources and match according the newest logsource list
 // If there is a new logSource, then add it to logSourcesMap, and create a new match with podname, no conf, no agentname
 // If there is a deleted logSource, then modify the match of this logSource, remove the PodName
-func updateLogSources(logSourcesMap map[string]api.LogSource, logSources []api.LogSource, match map[string]*Match) {
+func updateLogSources(logSourcesMap map[string]*api.LogSource, logSources []api.LogSource, match map[string]*Match) {
 	logger := log.WithFields(log.Fields{
 		"func": "updateLogSources",
 	})
@@ -330,10 +338,11 @@ func updateLogSources(logSourcesMap map[string]api.LogSource, logSources []api.L
 	for _, logSource := range logSources {
 		if _, exist := logSourcesMap[logSource.Meta.Name]; !exist {
 			logger.Info("Found a new logSource %s, add it to logSources map", logSource.Meta.Name)
-			logSourcesMap[logSource.Meta.Name] = logSource
+			logSourcesMap[logSource.Meta.Name] = &logSource
 			match[logSource.Meta.Name] = &Match{
 				PodName: logSource.Spec.PodName,
 			}
+			visited[logSource.Meta.Name] = true
 		} else {
 			visited[logSource.Meta.Name] = true
 		}
@@ -349,7 +358,7 @@ func updateLogSources(logSourcesMap map[string]api.LogSource, logSources []api.L
 
 // Update the map of logAgents and match according the newest logsource list
 // If there is a deleted logAgent, then modify the match which has this logAgent, remove the AgentName
-func updateLogAgents(logAgentsMap map[string]agent.Agent, logAgents []agent.Agent, match map[string]*Match) {
+func updateLogAgents(logAgentsMap map[string]*agent.Agent, logAgents []agent.Agent, match map[string]*Match) {
 	logger := log.WithFields(log.Fields{
 		"func": "updateLogAgents",
 	})
@@ -365,7 +374,7 @@ func updateLogAgents(logAgentsMap map[string]agent.Agent, logAgents []agent.Agen
 
 // Schedule Algorithm which is used to schedule the match relation between logSources and logAgents
 // Return the key of LogSource whose match relation is changed
-func updateMatch(logSourcesMap map[string]api.LogSource, logAgentsMap map[string]agent.Agent, match map[string]*Match) []api.LogSource {
+func updateMatch(logSourcesMap map[string]*api.LogSource, logAgentsMap map[string]*agent.Agent, match map[string]*Match) []api.LogSource {
 	logger := log.WithFields(log.Fields{
 		"func": "updateMatch",
 	})
@@ -397,7 +406,7 @@ func updateMatch(logSourcesMap map[string]api.LogSource, logAgentsMap map[string
 		}
 		if needAdded {
 			logger.Info("LogSource %s is needs to be enqueued")
-			logsources = append(logsources, logSourcesMap[k])
+			logsources = append(logsources, *logSourcesMap[k])
 		}
 	}
 
@@ -405,12 +414,12 @@ func updateMatch(logSourcesMap map[string]api.LogSource, logAgentsMap map[string
 }
 
 // Return the function that can be used to return newest logSources info from existing logConfigs
-func getListLogSourcesFunc(cli *kubernetes.Clientset, logConfigs map[string]api.LogConfig) func() ([]api.LogSource, error) {
+func getListLogSourcesFunc(cli *kubernetes.Clientset, logConfigs map[string]*api.LogConfig) func() ([]api.LogSource, error) {
 	logger := log.WithFields(log.Fields{
 		"func": "getListLogSourcesFunc",
 	})
 
-	for _, logConfig := range logConfigs {
+	for k, logConfig := range logConfigs {
 		name := logConfig.Name
 		kind := logConfig.Kind
 		namespace := logConfig.Namespace
@@ -418,7 +427,7 @@ func getListLogSourcesFunc(cli *kubernetes.Clientset, logConfigs map[string]api.
 		if err != nil {
 			logger.Errorf("getLabelSelector for logConfig %s failed, err: %v", logConfig.Name, err)
 		}
-		logConfig.LabelSelector = labelSelector
+		logConfigs[k].LabelSelector = labelSelector
 	}
 
 	return func() ([]api.LogSource, error) {
@@ -429,7 +438,7 @@ func getListLogSourcesFunc(cli *kubernetes.Clientset, logConfigs map[string]api.
 				LabelSelector: logConfig.LabelSelector,
 			})
 			for _, pod := range podList.Items {
-				logSources = append(logSources, *api.NewLogSource(&pod, &logConfig))
+				logSources = append(logSources, *api.NewLogSource(&pod, logConfig))
 			}
 		}
 
@@ -445,13 +454,13 @@ func getLabelSelector(cli *kubernetes.Clientset, name, namespace, kind string) (
 		if err != nil {
 			return "", err
 		}
-		labels = obj.Spec.Template.ObjectMeta.Labels
+		labels = obj.Spec.Selector.MatchLabels
 	case "statefulset":
 		obj, err := cli.AppsV1beta1().StatefulSets(namespace).Get(name, metav1.GetOptions{})
 		if err != nil {
 			return "", err
 		}
-		labels = obj.Spec.Template.ObjectMeta.Labels
+		labels = obj.Spec.Selector.MatchLabels
 	default:
 		return "", nil
 	}
