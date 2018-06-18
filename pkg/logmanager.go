@@ -125,6 +125,7 @@ func NewLogManager(cfg *LogManagerConfig) *LogManager {
 		LogSources:      logSourceConvertFromSliceToMap(logSources),
 		LogAgents:       logAgentConvertFromSliceToMap(logAgents),
 		LogAgentManager: logAgentManager,
+		Match:           make(map[string]*Match),
 		Queue:           workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "logsource"),
 		Cli:             cli,
 	}
@@ -339,13 +340,14 @@ func updateLogSources(logSourcesMap map[string]*api.LogSource, logSources []api.
 		if _, exist := logSourcesMap[logSource.Meta.Name]; !exist {
 			logger.Info("Found a new logSource %s, add it to logSources map", logSource.Meta.Name)
 			logSourcesMap[logSource.Meta.Name] = &logSource
+		}
+		if _, exist := match[logSource.Meta.Name]; !exist {
+			logger.Info("Found a new not matched logSource %s, add it to match")
 			match[logSource.Meta.Name] = &Match{
 				PodName: logSource.Spec.PodName,
 			}
-			visited[logSource.Meta.Name] = true
-		} else {
-			visited[logSource.Meta.Name] = true
 		}
+		visited[logSource.Meta.Name] = true
 	}
 
 	for logSourceName, _ := range logSourcesMap {
