@@ -35,7 +35,7 @@ type AgentManager interface {
 	List() ([]Agent, error)
 
 	// Add the log config of one logSource to one logAgent
-	AddConfig(logSource *api.LogSource, agent string) error
+	AddConfig(logSource *api.LogSource, agent string) (string, error)
 
 	// Delete the log config of one logSource from one logAgent
 	DelConfig(logSource *api.LogSource, agent string) error

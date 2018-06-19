@@ -38,12 +38,14 @@ func (lm *LogManager) logSourceAddFunc(key string) (bool, error) {
 	logSource := lm.LogSources[key]
 	logAgentName := lm.Match[key].AgentName
 
-	err := lm.LogAgentManager.AddConfig(logSource, logAgentName)
+	logger.Infof("Add logsource %s to agent %s", logSource.Meta.Name, logAgentName)
+	filePath, err := lm.LogAgentManager.AddConfig(logSource, logAgentName)
 	if err != nil {
 		logger.Error("Add config failed, err: %v", err)
 		return false, err
 	}
 	// Add log config file to logAgent
+	lm.Match[key].ConfPath = filePath
 	return true, nil
 }
 
@@ -56,25 +58,27 @@ func (lm *LogManager) logSourceDelFunc(key string) (bool, error) {
 	// Check the log lag
 	logSource := lm.LogSources[key]
 	logAgentName := lm.Match[key].AgentName
+	logger.Infof("Start removing logSource %s", key)
 
-	if logSource.Status.LogStatus.Done {
-		// If the log is done collecting, then delete this logSource and config
-		err := lm.LogAgentManager.DelConfig(logSource, logAgentName)
-		if err != nil {
-			logger.Error("Add config failed, err: %v", err)
-			return false, err
-		}
-		err = lm.removeLogSource(logSource)
-		if err != nil {
-			logger.Error("Remove logSource failed, err: %v", err)
-			return false, err
-		}
-
-		return true, nil
-
-	} else {
-		return false, nil
+	// For now we just remove config
+	// if logSource.Status.LogStatus.Done {
+	// If the log is done collecting, then delete this logSource and config
+	err := lm.LogAgentManager.DelConfig(logSource, logAgentName)
+	if err != nil {
+		logger.Error("Add config failed, err: %v", err)
+		return false, err
 	}
+	err = lm.removeLogSource(logSource)
+	if err != nil {
+		logger.Error("Remove logSource failed, err: %v", err)
+		return false, err
+	}
+
+	return true, nil
+
+	// } else {
+	// 	return false, nil
+	// }
 }
 
 func (lm *LogManager) logSourceMovFunc(key string) (bool, error) {
@@ -98,11 +102,12 @@ func (lm *LogManager) logSourceMovFunc(key string) (bool, error) {
 	}
 
 	// add new agent conf
-	err = lm.LogAgentManager.AddConfig(logSource, newLogAgentName)
+	filePath, err := lm.LogAgentManager.AddConfig(logSource, newLogAgentName)
 	if err != nil {
 		logger.Error("Add new config failed, err: %v", err)
 		return false, err
 	}
+	lm.Match[key].ConfPath = filePath
 
 	return true, nil
 }

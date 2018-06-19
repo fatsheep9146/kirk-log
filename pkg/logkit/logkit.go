@@ -65,21 +65,24 @@ func (l *LogkitAgentManagerImpl) List() ([]agent.Agent, error) {
 }
 
 // Add the log config file of one logSource to logAgent agent
-func (l *LogkitAgentManagerImpl) AddConfig(logSource *api.LogSource, agent string) error {
+func (l *LogkitAgentManagerImpl) AddConfig(logSource *api.LogSource, agent string) (string, error) {
 	// Generate the config file from logSource info
 	config, err := renderConfig(logSource)
 	if err != nil {
-		return err
+		return "", err
 	}
 
+	// Create log config to this log agent
 	filePath := fmt.Sprintf("%s/%s", getLogkitAgentConfDir(agent), getConfigFileName(logSource))
 
 	err = ioutil.WriteFile(filePath, []byte(config), 0644)
 	if err != nil {
-		return err
+		return "", err
 	}
-	// Create log config to this log agent
-	return nil
+
+	logSource.Status.ConfigStatus.Path = filePath
+
+	return filePath, nil
 }
 
 // Delete the log config file of one logSource from logAgent agent
@@ -98,5 +101,6 @@ func (l *LogkitAgentManagerImpl) CheckLag(logSource *api.LogSource, agent string
 }
 
 func (l *LogkitAgentManagerImpl) GetAgentNameFromConf(confpath string) string {
-	return ""
+	strs := strings.Split(confpath, "/")
+	return strs[2]
 }
