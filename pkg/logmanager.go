@@ -203,9 +203,11 @@ func (lm *LogManager) syncInfo() {
 		// Update the match relation between logSource and logAgent
 		logsources := updateMatch(lm.LogSources, lm.LogAgents, lm.Match)
 		logger.Info("Update match succeeded")
+
 		// Enqueue the LogSources that are needed to be synced
 		for _, logsource := range logsources {
 			lm.Queue.Add(logsource.Meta.Name)
+			log.Debugf("Logsource %s is added to queue", logsource.Meta.Name)
 		}
 
 		time.Sleep(3 * time.Second)
@@ -274,12 +276,12 @@ func (lm *LogManager) removeLogSource(logSource *api.LogSource) error {
 		"key":  logSource.Meta.Name,
 	})
 	// Remove log dir
-	err := os.Remove(logSource.GetLogDir())
+	err := os.RemoveAll(logSource.GetLogDir())
 	if err != nil {
 		logger.Errorf("Remove log dir failed, err: %v", err)
 		return err
 	}
-	logger.Info("Remove log dir succeeded")
+	logger.Infof("Remove log dir %s succeeded", logSource.GetLogDir())
 
 	key := logSource.Meta.Name
 	delete(lm.LogSources, key)
@@ -336,10 +338,10 @@ func updateLogSources(logSourcesMap map[string]*api.LogSource, logSources []api.
 
 	visited := make(map[string]bool)
 
-	for _, logSource := range logSources {
+	for i, logSource := range logSources {
 		if _, exist := logSourcesMap[logSource.Meta.Name]; !exist {
 			logger.Infof("Found a new logSource %s, add it to logSources map", logSource.Meta.Name)
-			logSourcesMap[logSource.Meta.Name] = &logSource
+			logSourcesMap[logSource.Meta.Name] = &logSources[i]
 		}
 		if _, exist := match[logSource.Meta.Name]; !exist {
 			logger.Infof("Found a new not matched logSource %s, add it to match", logSource.Meta.Name)
@@ -364,15 +366,30 @@ func updateLogAgents(logAgentsMap map[string]*agent.Agent, logAgents []agent.Age
 	logger := log.WithFields(log.Fields{
 		"func": "updateLogAgents",
 	})
-	logAgentsMap = logAgentConvertFromSliceToMap(logAgents)
+	curLogAgentsMap := logAgentConvertFromSliceToMap(logAgents)
+	deletedAgentName := make(map[string]bool)
 
 	for k, m := range match {
 		if m.AgentName != "" {
-			if _, exist := logAgentsMap[m.AgentName]; !exist {
+			if _, exist := curLogAgentsMap[m.AgentName]; !exist {
 				logger.Infof("Found a logSource %s with no-more-existed agent %s, delete its info", k, match[k].AgentName)
+				deletedAgentName[match[k].AgentName] = true
 				match[k].AgentName = ""
 			}
 		}
+	}
+
+	for k, _ := range curLogAgentsMap {
+		if _, exist := logAgentsMap[k]; !exist {
+			logger.Infof("Found a new log agent %s", k)
+			logAgentsMap[k] = curLogAgentsMap[k]
+		}
+	}
+
+	// delete the lost agent name from logAgentsMap
+	for k, _ := range deletedAgentName {
+		logger.Infof("Delete a non-existed log agent %s", k)
+		delete(logAgentsMap, k)
 	}
 }
 
@@ -404,12 +421,12 @@ func updateMatch(logSourcesMap map[string]*api.LogSource, logAgentsMap map[strin
 		}
 
 		if needSchedule {
-			logger.Infof("LogSource %s needs to be scheduled or re-scheduled")
+			logger.Infof("LogSource %s needs to be scheduled or re-scheduled", k)
 			schedule(logSourcesMap[k], logAgentsMap, match)
 			logger.Infof("LogSource %s is scheduled or re-scheduled to agent %s", logSourcesMap[k].Meta.Name, match[k].AgentName)
 		}
 		if needAdded {
-			logger.Infof("LogSource %s is needs to be enqueued")
+			logger.Infof("LogSource %s is needs to be enqueued", logSourcesMap[k].Meta.Name)
 			logsources = append(logsources, *logSourcesMap[k])
 		}
 	}
